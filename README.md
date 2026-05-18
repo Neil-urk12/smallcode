@@ -147,6 +147,19 @@ Persistent scratchpad that survives across turns. Compensates for limited reason
 | `find_files` | Glob file search |
 | `memory_load` | Load relevant project memory |
 | `memory_remember` | Save knowledge to memory |
+| `web_search` | Search the web via DuckDuckGo (requires `SMALLCODE_WEB_BROWSE=true`) |
+| `web_fetch` | Fetch and extract text from a URL (requires `SMALLCODE_WEB_BROWSE=true`) |
+
+### Web Browsing
+
+SmallCode includes Playwright with stealth mode for undetected web browsing. Disabled by default — enable for medium/large models (20B+) that can synthesize web context effectively:
+
+```bash
+# In your .env
+SMALLCODE_WEB_BROWSE=true
+```
+
+When enabled, the model can search the web and fetch documentation during tasks. Uses headless Chromium with anti-detection to avoid CAPTCHAs and bot blocks. Falls back to simple HTTP fetch if Playwright isn't available.
 
 ## License
 

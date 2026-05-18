@@ -1,6 +1,6 @@
 {
   "name": "smallcode",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "AI coding agent optimized for small LLMs (≤20B parameters)",
   "bin": {
     "smallcode": "bin/smallcode.js"
@@ -10,7 +10,8 @@
     "start": "node bin/smallcode.js",
     "dev": "node bin/smallcode.js",
     "eval": "node bin/smallcode.js --eval classify_accuracy",
-    "mcp": "node bin/smallcode.js --mcp"
+    "mcp": "node bin/smallcode.js --mcp",
+    "postinstall": "npx playwright install chromium --with-deps 2>/dev/null || true"
   },
   "dependencies": {
     "bonescript-compiler": "^0.14.0",
@@ -18,7 +19,9 @@
     "chalk": "^4.1.2",
     "cli-highlight": "^2.1.11",
     "marked": "^15.0.12",
-    "marked-terminal": "^7.3.0"
+    "marked-terminal": "^7.3.0",
+    "playwright-extra": "^4.3.0",
+    "puppeteer-extra-plugin-stealth": "^2.11.0"
   },
   "keywords": [
     "ai",

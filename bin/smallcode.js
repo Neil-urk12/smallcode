@@ -1180,6 +1180,25 @@ async function executeTool(name, args) {
       }
     }
 
+    case 'web_search': {
+      if (process.env.SMALLCODE_WEB_BROWSE !== 'true') {
+        return { error: 'Web browsing is disabled. Set SMALLCODE_WEB_BROWSE=true in .env to enable (recommended for 20B+ models).' };
+      }
+      const { webSearch } = require('../src/tools/builtin/web_browse');
+      const results = await webSearch(args.query, 5);
+      const formatted = results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`).join('\n\n');
+      return { result: formatted || 'No results found.' };
+    }
+
+    case 'web_fetch': {
+      if (process.env.SMALLCODE_WEB_BROWSE !== 'true') {
+        return { error: 'Web browsing is disabled. Set SMALLCODE_WEB_BROWSE=true in .env to enable.' };
+      }
+      const { webFetch } = require('../src/tools/builtin/web_browse');
+      const content = await webFetch(args.url, 5000);
+      return { result: content || 'Failed to fetch URL.' };
+    }
+
     default: {
       // Try plugin tools before giving up
       if (pluginLoader) {
