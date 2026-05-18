@@ -331,17 +331,69 @@ module.exports = function createCommandHandler(config, conversationHistory, impr
       }
 
       case '/undo': {
-        const { execSync } = require('child_process');
-        try {
-          const status = execSync('git status --porcelain', { encoding: 'utf-8', cwd: process.cwd() });
-          if (status.trim()) {
+        const sub = parts[1];
+        if (sub === 'list') {
+          const edits = (global._smallcodeUndo || { list: () => [] }).list(10);
+          if (edits.length === 0) {
+            console.log(chalk.gray('  No edits to undo.'));
+          } else {
+            console.log(chalk.bold('  Recent edits:'));
+            for (const e of edits) {
+              console.log(`    ${chalk.cyan(`#${e.id}`)} ${chalk.white(e.path)} ${chalk.gray(`(${e.type}, ${e.age}s ago)`)}`);
+            }
+            console.log(chalk.gray('\n  /undo       Revert last edit'));
+            console.log(chalk.gray('  /undo <id>  Revert specific edit'));
+            console.log(chalk.gray('  /undo all   Git revert all changes'));
+          }
+        } else if (sub === 'all') {
+          const { execSync } = require('child_process');
+          try {
             execSync('git checkout -- .', { encoding: 'utf-8', cwd: process.cwd() });
             console.log(`  ${chalk.green('✓')} Reverted all uncommitted changes.`);
-          } else {
-            console.log(chalk.gray('  No changes to undo.'));
+          } catch {
+            console.log(chalk.red('  Not a git repo.'));
           }
-        } catch {
-          console.log(chalk.red('  Not a git repo or no changes to undo.'));
+        } else if (sub && !isNaN(sub)) {
+          const result = (global._smallcodeUndo || { undoById: () => null }).undoById(parseInt(sub));
+          if (result && !result.error) {
+            console.log(`  ${chalk.green('✓')} Reverted ${result.reverted}: ${result.action}`);
+          } else {
+            console.log(chalk.red(`  ${result?.error || 'Edit not found.'}`));
+          }
+        } else {
+          const result = (global._smallcodeUndo || { undoLast: () => null }).undoLast();
+          if (result && !result.error) {
+            console.log(`  ${chalk.green('✓')} Reverted ${result.reverted}: ${result.action}`);
+          } else if (result?.error) {
+            console.log(chalk.red(`  ${result.error}`));
+          } else {
+            console.log(chalk.gray('  No edits to undo. Use /undo all for git revert.'));
+          }
+        }
+        console.log('');
+        rl.prompt();
+        return;
+      }
+
+      case '/share': {
+        const { exportToMarkdown, exportToGist } = require('../src/session/share');
+        const sub = parts[1];
+        if (conversationHistory.length === 0) {
+          console.log(chalk.gray('  No session to share.'));
+        } else if (sub === 'gist') {
+          console.log(chalk.gray('  Creating gist...'));
+          const session = { id: 'tmp', title: conversationHistory.find(m => m.role === 'user')?.content?.slice(0, 40) || '', messages: conversationHistory, model: config.model.name, createdAt: new Date().toISOString() };
+          const result = exportToGist(session);
+          if (result.success) {
+            console.log(`  ${chalk.green('✓')} Shared: ${chalk.cyan(result.url)}`);
+          } else {
+            console.log(chalk.red(`  Failed: ${result.error}`));
+          }
+        } else {
+          const outputPath = sub || `smallcode-session-${Date.now()}.md`;
+          const session = { id: 'tmp', title: '', messages: conversationHistory, model: config.model.name, createdAt: new Date().toISOString() };
+          exportToMarkdown(session, outputPath);
+          console.log(`  ${chalk.green('✓')} Exported to ${chalk.cyan(outputPath)}`);
         }
         console.log('');
         rl.prompt();

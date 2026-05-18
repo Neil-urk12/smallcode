@@ -8,6 +8,29 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+
+// Load .env file from project root (simple dotenv without dependency)
+(function loadDotenv() {
+  const envPath = path.join(process.cwd(), '.env');
+  if (!fs.existsSync(envPath)) return;
+  try {
+    const content = fs.readFileSync(envPath, 'utf-8');
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx === -1) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      let value = trimmed.slice(eqIdx + 1).trim();
+      // Remove surrounding quotes
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      // Don't override existing env vars
+      if (!process.env[key]) process.env[key] = value;
+    }
+  } catch {}
+})();
 const readline = require('readline');
 const os = require('os');
 const tui = require('./tui');
@@ -289,17 +312,106 @@ EXAMPLES:
 
 function loadConfig() {
   const defaults = {
-    model: { provider: 'openai', name: 'huihui-gemma-4-e4b-it-abliterated', baseUrl: 'http://10.0.0.20:1234/v1' },
+    model: { provider: 'openai', name: '', baseUrl: 'http://localhost:1234/v1' },
     context: { max_budget_pct: 70, working_memory_tokens: 500, summary_threshold: 200 },
     tools: { bash_timeout: 30 },
     tui: { show_token_usage: true, auto_approve: false },
     escalation: { enabled: true, max_per_session: 5, confirm: true, provider: null, api_key: null, model: null },
+    git: { auto_commit: false },
   };
 
+  // Load smallcode.toml from project root or ~/.config/smallcode/
+  const tomlPaths = [
+    path.join(process.cwd(), 'smallcode.toml'),
+    path.join(process.cwd(), '.smallcode', 'config.toml'),
+    path.join(os.homedir(), '.config', 'smallcode', 'config.toml'),
+  ];
+
+  for (const tomlPath of tomlPaths) {
+    if (fs.existsSync(tomlPath)) {
+      try {
+        const content = fs.readFileSync(tomlPath, 'utf-8');
+        const parsed = parseToml(content);
+        // Merge parsed config over defaults
+        if (parsed.model) Object.assign(defaults.model, parsed.model);
+        if (parsed.context) Object.assign(defaults.context, parsed.context);
+        if (parsed.tools) Object.assign(defaults.tools, parsed.tools);
+        if (parsed.tui) Object.assign(defaults.tui, parsed.tui);
+        if (parsed.escalation) Object.assign(defaults.escalation, parsed.escalation);
+        if (parsed.git) Object.assign(defaults.git, parsed.git);
+        if (parsed.models) defaults.models = parsed.models;
+        break; // Use first found config
+      } catch (e) {
+        // Silently skip broken config
+      }
+    }
+  }
+
+  // Environment variables override config file
+  if (process.env.SMALLCODE_BASE_URL) defaults.model.baseUrl = process.env.SMALLCODE_BASE_URL;
+  if (process.env.SMALLCODE_MODEL) defaults.model.name = process.env.SMALLCODE_MODEL;
+  if (process.env.OLLAMA_HOST) defaults.model.baseUrl = process.env.OLLAMA_HOST + '/v1';
+
+  // CLI flags override everything
   if (flags.model) defaults.model.name = flags.model;
   if (flags.provider) defaults.model.provider = flags.provider;
 
   return defaults;
+}
+
+// Simple TOML parser (handles [sections], key = "value", key = number, key = bool)
+function parseToml(content) {
+  const result = {};
+  let currentSection = null;
+
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+
+    // Section header
+    const sectionMatch = trimmed.match(/^\[(.+)\]$/);
+    if (sectionMatch) {
+      currentSection = sectionMatch[1];
+      if (!result[currentSection]) result[currentSection] = {};
+      continue;
+    }
+
+    // Key = value
+    const kvMatch = trimmed.match(/^(\w+)\s*=\s*(.+)$/);
+    if (kvMatch) {
+      const key = kvMatch[1];
+      let value = kvMatch[2].trim();
+
+      // Strip inline comments (# after value, but not inside strings)
+      if (!value.startsWith('"') && !value.startsWith("'") && !value.startsWith('[')) {
+        const commentIdx = value.indexOf('#');
+        if (commentIdx > 0) value = value.slice(0, commentIdx).trim();
+      }
+
+      // Parse value type
+      if (value.startsWith('"') && value.endsWith('"')) {
+        value = value.slice(1, -1); // String
+      } else if (value.startsWith("'") && value.endsWith("'")) {
+        value = value.slice(1, -1); // String
+      } else if (value === 'true') {
+        value = true;
+      } else if (value === 'false') {
+        value = false;
+      } else if (!isNaN(value)) {
+        value = Number(value);
+      } else if (value.startsWith('[') && value.endsWith(']')) {
+        // Simple array: ["a", "b", "c"]
+        value = value.slice(1, -1).split(',').map(s => s.trim().replace(/^["']|["']$/g, ''));
+      }
+
+      if (currentSection) {
+        result[currentSection][key] = value;
+      } else {
+        result[key] = value;
+      }
+    }
+  }
+  return result;
 }
 
 // ─── Ollama Check ────────────────────────────────────────────────────────────
@@ -2047,6 +2159,14 @@ function handleMCPToolCall(id, params) {
 
 async function main() {
   const config = loadConfig();
+
+  // Check model is configured
+  if (!config.model.name) {
+    console.error('\n  ✗ No model configured.');
+    console.error('  Set SMALLCODE_MODEL in .env, or add [model] name = "..." to smallcode.toml');
+    console.error('  See .env.example for setup instructions.\n');
+    process.exit(1);
+  }
 
   // Initialize escalation engine
   escalationEngine = new EscalationEngine(config.escalation || {});
