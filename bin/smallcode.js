@@ -1254,6 +1254,26 @@ const MAX_TOOL_CALLS = 500;
 const MAX_IMPROVE_ITERATIONS = 2;
 
 async function runAgentLoop(userMessage, config) {
+  // Clarification loop — detect vague prompts before wasting tool calls
+  const { needsClarification, getClarificationInstruction } = require('../src/session/clarify');
+  if (needsClarification(userMessage)) {
+    // Inject clarification instruction into this turn only
+    conversationHistory.push({ role: 'user', content: userMessage });
+    conversationHistory.push({ role: 'system', content: getClarificationInstruction() });
+    // Let the model ask for clarification (no tools, just respond)
+    const response = await chatCompletion(config, conversationHistory);
+    const message = response?.choices?.[0]?.message;
+    if (message?.content) {
+      conversationHistory.push({ role: 'assistant', content: message.content });
+      if (_fullscreenRef) {
+        _fullscreenRef.addChat('assistant', message.content);
+      } else {
+        process.stdout.write(tui.renderMarkdown(message.content));
+      }
+    }
+    return; // Wait for user to clarify
+  }
+
   // Detect drag-and-dropped image files (bare path pasted into terminal)
   const { detectDroppedFile } = require('../src/session/images');
   const droppedPath = detectDroppedFile(userMessage);
@@ -1368,16 +1388,30 @@ async function runAgentLoop(userMessage, config) {
               const attempt = improvementAttempts[filePath];
               console.log(tui.improvementLoop(validation.errors, attempt, MAX_IMPROVE_ITERATIONS));
 
-              // Escalate context on repeated failures
+              // Track attempt history for this file
+              if (!improvementAttempts[`__history:${filePath}`]) improvementAttempts[`__history:${filePath}`] = [];
+              improvementAttempts[`__history:${filePath}`].push({
+                attempt,
+                errors: validation.errors.slice(0, 3),
+              });
+
+              // Build fix prompt with full retry history
               let fixPrompt;
+              const history = improvementAttempts[`__history:${filePath}`];
+              const historyStr = history.length > 1
+                ? `\n\nPrevious attempts (${history.length - 1} failed):\n` + history.slice(0, -1).map((h, i) => `  Attempt ${i + 1}: ${h.errors[0] || 'unknown error'}`).join('\n')
+                : '';
+
               if (attempt <= 2) {
-                // Simple: just show the errors
-                fixPrompt = `[AUTO-VALIDATE] Errors in ${filePath}:\n${validation.errors.join('\n')}\n\nFix these errors.`;
+                fixPrompt = `[AUTO-VALIDATE] Errors in ${filePath} (attempt ${attempt}/${MAX_IMPROVE_ITERATIONS}):
+${validation.errors.join('\n')}${historyStr}
+
+Fix these errors. Do NOT repeat the same approach that failed before.`;
               } else {
-                // Escalated: show the full file + errors so model has complete picture
+                // Escalated: show the full file + errors + history
                 let fileContent = '';
                 try { fileContent = fs.readFileSync(path.resolve(process.cwd(), filePath), 'utf-8'); } catch {}
-                fixPrompt = `[AUTO-VALIDATE] After ${attempt} attempts, ${filePath} still has errors.
+                fixPrompt = `[AUTO-VALIDATE] After ${attempt} attempts, ${filePath} still has errors.${historyStr}
 
 FULL FILE CONTENT:
 \`\`\`
@@ -1387,7 +1421,7 @@ ${fileContent}
 ERRORS:
 ${validation.errors.join('\n')}
 
-Read the FULL file above carefully. Fix ALL errors. Use the patch tool with the exact text from the file.`;
+Read the FULL file above carefully. Fix ALL errors. Use the patch tool with the exact text from the file. Do NOT repeat previous failed approaches.`;
               }
 
               conversationHistory.push({ role: 'user', content: fixPrompt });
@@ -1565,6 +1599,17 @@ Read the FULL file above carefully. Fix ALL errors. Use the patch tool with the 
     }
 
     // No tool calls — model is responding with text
+    // Counter guard: if this is a coding/editing task and no tools were called,
+    // the model may be prematurely answering instead of acting
+    if (toolCallsThisTurn === 0 && (currentTaskType === 'coding' || currentTaskType === 'editing' || currentTaskType === 'backend')) {
+      if (message.content && !message.content.includes('?') && message.content.length < 200) {
+        // Model gave a short non-question response without using tools — push it to act
+        conversationHistory.push({ role: 'assistant', content: message.content });
+        conversationHistory.push({ role: 'user', content: '[SYSTEM] You responded without using any tools. This task requires file operations. Please use the appropriate tools (read_file, write_file, patch, etc.) to complete the task. Do not just describe what you would do — actually do it.' });
+        continue;
+      }
+    }
+
     // Stream the final response for better UX
     if (message.content) {
       conversationHistory.push({ role: 'assistant', content: message.content });
