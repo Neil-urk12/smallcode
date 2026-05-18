@@ -47,21 +47,24 @@ const ANSI = {
 
 const THEMES = {
   dark: {
-    bg: ANSI.bgRgb(22, 22, 30),
-    fg: ANSI.fgRgb(220, 220, 230),
-    accent: ANSI.fgRgb(100, 180, 255),
-    muted: ANSI.fgRgb(100, 100, 120),
-    success: ANSI.fgRgb(80, 220, 120),
-    error: ANSI.fgRgb(255, 100, 100),
-    warning: ANSI.fgRgb(255, 200, 60),
-    border: ANSI.fgRgb(60, 60, 80),
-    statusBg: ANSI.bgRgb(35, 35, 50),
-    inputBg: ANSI.bgRgb(30, 30, 42),
+    bg: ANSI.bgRgb(15, 15, 15),
+    fg: ANSI.fgRgb(190, 190, 195),
+    accent: ANSI.fgRgb(180, 180, 185),
+    muted: ANSI.fgRgb(90, 90, 100),
+    success: ANSI.fgRgb(140, 200, 140),
+    error: ANSI.fgRgb(220, 90, 90),
+    warning: ANSI.fgRgb(220, 180, 80),
+    border: ANSI.fgRgb(50, 50, 55),
+    statusBg: ANSI.bgRgb(20, 20, 22),
+    inputBg: ANSI.bgRgb(18, 18, 20),
+    brand: ANSI.fgRgb(220, 220, 225),       // bright silver for logo
+    brandDim: ANSI.fgRgb(120, 120, 130),    // dimmer silver
+    cmdHighlight: ANSI.fgRgb(160, 140, 200), // subtle purple for commands
   },
   light: {
     bg: ANSI.bgRgb(250, 250, 252),
     fg: ANSI.fgRgb(30, 30, 40),
-    accent: ANSI.fgRgb(0, 100, 200),
+    accent: ANSI.fgRgb(60, 60, 70),
     muted: ANSI.fgRgb(140, 140, 160),
     success: ANSI.fgRgb(20, 160, 60),
     error: ANSI.fgRgb(200, 40, 40),
@@ -69,18 +72,24 @@ const THEMES = {
     border: ANSI.fgRgb(200, 200, 210),
     statusBg: ANSI.bgRgb(235, 235, 240),
     inputBg: ANSI.bgRgb(245, 245, 248),
+    brand: ANSI.fgRgb(40, 40, 50),
+    brandDim: ANSI.fgRgb(120, 120, 130),
+    cmdHighlight: ANSI.fgRgb(100, 80, 160),
   },
   minimal: {
     bg: '',
     fg: '',
-    accent: ANSI.fg(75),
+    accent: ANSI.fg(250),
     muted: ANSI.fg(242),
     success: ANSI.fg(78),
     error: ANSI.fg(196),
     warning: ANSI.fg(214),
-    border: ANSI.fg(240),
-    statusBg: ANSI.bg(236),
-    inputBg: ANSI.bg(235),
+    border: ANSI.fg(236),
+    statusBg: ANSI.bg(233),
+    inputBg: ANSI.bg(234),
+    brand: ANSI.fg(255),
+    brandDim: ANSI.fg(245),
+    cmdHighlight: ANSI.fg(141),
   },
 };
 
@@ -152,6 +161,7 @@ class FullScreenTUI {
     this.tokenCount = 0;
     this.msgCount = 0;
     this.isStreaming = false;
+    this.showWelcome = true; // Show splash on first render
 
     // Callbacks
     this.onSubmit = options.onSubmit || (() => {});
@@ -235,11 +245,11 @@ class FullScreenTUI {
 
     // Position cursor in input
     const inputRow = this.chatHeight + 2; // +1 for border, +1 for 1-index
-    const inputAvail = this.width - 4;
+    const inputAvail = this.width - 5;
     const scrollOffset = this.inputBuffer.length > inputAvail
       ? Math.max(0, this.inputCursor - inputAvail + 5)
       : 0;
-    const inputCol = 4 + (this.inputCursor - scrollOffset); // "› " prefix + visible cursor pos
+    const inputCol = 5 + (this.inputCursor - scrollOffset); // "│ > " prefix + visible cursor pos
     buf += ANSI.moveTo(inputRow, inputCol) + ANSI.showCursor;
 
     this._rawWrite(buf);
@@ -247,6 +257,12 @@ class FullScreenTUI {
 
   _renderChatPanel() {
     let buf = '';
+
+    // Show welcome splash when no messages yet
+    if (this.showWelcome && this.chatLines.length === 0) {
+      return this._renderWelcomeScreen();
+    }
+
     const startLine = Math.max(0, this.chatLines.length - this.chatHeight + this.chatScroll);
     const endLine = startLine + this.chatHeight;
     const visible = this.chatLines.slice(startLine, endLine);
@@ -258,6 +274,86 @@ class FullScreenTUI {
       buf += this._truncate(line, this.chatWidth);
       // Clear rest of line
       buf += ' '.repeat(Math.max(0, this.chatWidth - this._stripAnsi(line).length));
+    }
+
+    return buf;
+  }
+
+  _renderWelcomeScreen() {
+    let buf = '';
+    const w = this.chatWidth;
+    const h = this.chatHeight;
+    const t = this.theme;
+
+    // ASCII logo — block style
+    const logo = [
+      '███████╗███╗   ███╗ █████╗ ██╗     ██╗      ██████╗ ██████╗ ██████╗ ███████╗',
+      '██╔════╝████╗ ████║██╔══██╗██║     ██║     ██╔════╝██╔═══██╗██╔══██╗██╔════╝',
+      '███████╗██╔████╔██║███████║██║     ██║     ██║     ██║   ██║██║  ██║█████╗  ',
+      '╚════██║██║╚██╔╝██║██╔══██║██║     ██║     ██║     ██║   ██║██║  ██║██╔══╝  ',
+      '███████║██║ ╚═╝ ██║██║  ██║███████╗███████╗╚██████╗╚██████╔╝██████╔╝███████╗',
+      '╚══════╝╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝ ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝',
+    ];
+
+    // Use simpler logo if terminal is narrow
+    const simpleLogo = [
+      '╔═╗┌┬┐┌─┐┬  ┬  ╔═╗┌─┐┌┬┐┌─┐',
+      '╚═╗│││├─┤│  │  ║  │ │ ││├┤ ',
+      '╚═╝┴ ┴┴ ┴┴─┘┴─┘╚═╝└─┘─┴┘└─┘',
+    ];
+
+    const useSimple = w < 80;
+    const logoLines = useSimple ? simpleLogo : logo;
+    const logoWidth = logoLines[0].length;
+
+    // Center vertically — logo starts ~1/4 down the screen
+    const startRow = Math.max(2, Math.floor(h * 0.15));
+
+    // Draw logo centered
+    for (let i = 0; i < logoLines.length; i++) {
+      const row = startRow + i;
+      if (row > h) break;
+      const pad = Math.max(0, Math.floor((w - logoWidth) / 2));
+      buf += ANSI.moveTo(row, 1);
+      buf += ' '.repeat(pad) + t.brand + logoLines[i] + ANSI.reset;
+    }
+
+    // Version below logo
+    const versionRow = startRow + logoLines.length + 1;
+    const versionText = `v0.2.0`;
+    const versionPad = Math.max(0, Math.floor((w - logoWidth) / 2) + logoWidth - versionText.length);
+    buf += ANSI.moveTo(versionRow, versionPad + 1);
+    buf += t.muted + versionText + ANSI.reset;
+
+    // Command hints (centered block)
+    const commands = [
+      ['/help', 'show help', 'ctrl+l'],
+      ['/model', 'switch model', ''],
+      ['/memory', 'project memory', ''],
+      ['/skill', 'manage skills', ''],
+      ['/quit', 'exit', 'ctrl+c'],
+    ];
+
+    const cmdStartRow = versionRow + 3;
+    for (let i = 0; i < commands.length; i++) {
+      const [cmd, desc, shortcut] = commands[i];
+      const row = cmdStartRow + i;
+      if (row > h) break;
+      const line = `${cmd.padEnd(12)} ${desc.padEnd(18)} ${shortcut}`;
+      const pad = Math.max(0, Math.floor((w - 42) / 2));
+      buf += ANSI.moveTo(row, pad + 1);
+      buf += (t.cmdHighlight || t.accent) + cmd.padEnd(12) + ANSI.reset;
+      buf += t.fg + desc.padEnd(18) + ANSI.reset;
+      buf += t.muted + shortcut + ANSI.reset;
+    }
+
+    // Model info below commands
+    const infoRow = cmdStartRow + commands.length + 2;
+    if (infoRow < h) {
+      const infoText = `${this.model}`;
+      const infoPad = Math.max(0, Math.floor((w - infoText.length) / 2));
+      buf += ANSI.moveTo(infoRow, infoPad + 1);
+      buf += t.brandDim + infoText + ANSI.reset;
     }
 
     return buf;
@@ -290,31 +386,28 @@ class FullScreenTUI {
   _renderInput() {
     let buf = '';
     const row = this.chatHeight + 1;
+    const t = this.theme;
 
     // Command palette (floating above input when typing a slash command)
     if (this.commandPaletteOpen) {
       buf += this._renderCommandPalette(row);
     }
 
-    // Border line
+    // Thin separator line
     buf += ANSI.moveTo(row, 1);
-    buf += this.theme.border + BOX.horizontal.repeat(this.width) + ANSI.reset;
+    buf += t.border + BOX.horizontal.repeat(this.width) + ANSI.reset;
 
-    // Input line — wrap if longer than available width
-    const inputAvail = this.width - 4; // " › " prefix
+    // Input line — left border accent + clean input
+    const inputAvail = this.width - 5; // "│ > " prefix
     buf += ANSI.moveTo(row + 1, 1);
-    buf += this.theme.inputBg + ANSI.clearLine;
-    buf += this.theme.accent + ' › ' + ANSI.reset;
-    buf += this.theme.inputBg + this.theme.fg;
+    buf += t.inputBg + t.border + BOX.vertical + ANSI.reset + t.inputBg;
+    buf += t.muted + ' > ' + ANSI.reset + t.inputBg + t.fg;
 
     // Show the visible portion of input (scroll horizontally if too long)
     let visibleInput = this.inputBuffer;
-    let cursorCol = this.inputCursor;
     if (this.inputBuffer.length > inputAvail) {
-      // Scroll the input so cursor is always visible
       const scrollOffset = Math.max(0, this.inputCursor - inputAvail + 5);
       visibleInput = this.inputBuffer.slice(scrollOffset, scrollOffset + inputAvail);
-      cursorCol = this.inputCursor - scrollOffset;
     }
     buf += visibleInput;
     buf += ' '.repeat(Math.max(0, inputAvail - visibleInput.length));
@@ -323,11 +416,9 @@ class FullScreenTUI {
     // Hint line
     buf += ANSI.moveTo(row + 2, 1);
     if (this.commandPaletteOpen) {
-      buf += this.theme.muted + '   ↑↓ navigate  Enter select  Esc cancel' + ANSI.reset;
-    } else if (this.inputBuffer.length > inputAvail) {
-      buf += this.theme.muted + `   ${this.inputCursor}/${this.inputBuffer.length} chars` + ANSI.reset;
+      buf += t.muted + '  ↑↓ navigate  enter select  esc cancel' + ANSI.reset;
     } else {
-      buf += this.theme.muted + '   /help for commands' + ANSI.reset;
+      buf += t.muted + '' + ANSI.reset; // Clean — no hint clutter
     }
 
     return buf;
@@ -387,26 +478,22 @@ class FullScreenTUI {
   _renderStatus() {
     let buf = '';
     const row = this.height;
+    const t = this.theme;
 
     buf += ANSI.moveTo(row, 1);
-    buf += this.theme.statusBg;
+    buf += t.statusBg;
 
-    const left = ` ⚡ ${this.model}`;
-    const mid = `│ ${this.msgCount} msgs`;
-    const scrollInfo = this.chatScroll < 0
-      ? `│ ↑ scroll (Shift+↓ to return)`
-      : '';
-    const right = `${this.isStreaming ? '⟳ streaming' : '✓ ready'} `;
-    const padding = this.width - left.length - mid.length - scrollInfo.length - right.length - 4;
+    const left = ` enter send`;
+    const scrollInfo = this.chatScroll < 0 ? `  ↑ scrolled` : '';
+    const right = ` smallcode  ${this.model}  ${this.isStreaming ? '⟳' : '●'} `;
+    const padding = this.width - left.length - scrollInfo.length - right.length;
 
-    buf += this.theme.accent + left + ' ';
-    buf += this.theme.muted + mid + ' ';
+    buf += t.muted + left + ANSI.reset + t.statusBg;
     if (scrollInfo) {
-      buf += this.theme.warning + scrollInfo + ' ';
+      buf += (t.warning || t.muted) + scrollInfo + ANSI.reset + t.statusBg;
     }
     buf += ' '.repeat(Math.max(1, padding));
-    buf += (this.isStreaming ? this.theme.warning : this.theme.success) + right;
-    buf += ANSI.reset;
+    buf += t.brandDim + right + ANSI.reset;
 
     return buf;
   }
@@ -592,6 +679,7 @@ class FullScreenTUI {
   // ─── Public API ──────────────────────────────────────────────────────
 
   addChat(role, content) {
+    this.showWelcome = false; // Dismiss welcome screen on first message
     const prefix = role === 'user'
       ? this.theme.accent + ' You: ' + ANSI.reset
       : role === 'assistant'
